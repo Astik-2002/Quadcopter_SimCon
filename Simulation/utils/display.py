@@ -75,6 +75,13 @@ def makeFigures(params, time, pos_all, vel_all, quat_all, omega_all, euler_all, 
     Ay_tr = sDes_traj[:,7]
     Az_tr = sDes_traj[:,8]
     yaw_tr = sDes_traj[:,14]*rad2deg
+    jx_tr = sDes_traj[:,19]
+    jy_tr = sDes_traj[:,20]
+    jz_tr = sDes_traj[:,21]
+    sx_tr = sDes_traj[:,22]
+    sy_tr = sDes_traj[:,23]
+    sz_tr = sDes_traj[:,24]
+    
 
     uM1 = commands[:,0]*rads2rpm
     uM2 = commands[:,1]*rads2rpm
@@ -170,7 +177,7 @@ def makeFigures(params, time, pos_all, vel_all, quat_all, omega_all, euler_all, 
     plt.draw()
 
     plt.figure()
-    plt.subplot(3,1,1)
+    plt.subplot(5,1,1)
     plt.title('Trajectory Setpoints')
     plt.plot(time, x_tr, time, y_tr, time, z_tr)
     plt.grid(True)
@@ -178,19 +185,35 @@ def makeFigures(params, time, pos_all, vel_all, quat_all, omega_all, euler_all, 
     plt.xlabel('Time (s)')
     plt.ylabel('Position (m)')
 
-    plt.subplot(3,1,2)
+    plt.subplot(5,1,2)
     plt.plot(time, Vx_tr, time, Vy_tr, time, Vz_tr)
     plt.grid(True)
     plt.legend(['Vx','Vy','Vz'], loc='upper right')
     plt.xlabel('Time (s)')
     plt.ylabel('Velocity (m/s)')
    
-    plt.subplot(3,1,3)
+    plt.subplot(5,1,3)
     plt.plot(time, Ax_tr, time, Ay_tr, time, Az_tr)
     plt.grid(True)
     plt.legend(['Ax','Ay','Az'], loc='upper right')
     plt.xlabel('Time (s)')
     plt.ylabel('Acceleration (m/s^2)')
+    plt.draw()
+
+    plt.subplot(5,1,4)
+    plt.plot(time, jx_tr, time, jy_tr, time, jz_tr)
+    plt.grid(True)
+    plt.legend(['Jx','Jy','Jz'], loc='upper right')
+    plt.xlabel('Time (s)')
+    plt.ylabel('Jerk (m/s^3)')
+    plt.draw()
+
+    plt.subplot(5,1,5)
+    plt.plot(time, sx_tr, time, sy_tr, time, sz_tr)
+    plt.grid(True)
+    plt.legend(['Sx','Sy','Sz'], loc='upper right')
+    plt.xlabel('Time (s)')
+    plt.ylabel('Snap (m/s^4)')
     plt.draw()
 
     plt.figure()
