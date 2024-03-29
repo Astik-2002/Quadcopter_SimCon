@@ -133,9 +133,9 @@ class Control:
             self.z_vel_control(quad, Ts)
             self.xy_vel_control(quad, Ts)
             self.thrustToAttitude(quad, Ts, traj)
-            #self.attitude_control(quad, Ts)
-            #self.rate_control(quad, Ts)
+            self.attitude_control(quad, Ts)
             self.attitude_control_geometric(quad, Ts)
+            self.rate_control(quad, Ts)
         elif (traj.ctrlType == "xy_vel_z_pos"):
             self.z_pos_control(quad, Ts)
             self.saturateVel()
@@ -155,7 +155,7 @@ class Control:
             self.rate_control(quad, Ts)
 
         # Mixer
-        # --------------------------- 
+        # ---------------------------
         self.w_cmd = utils.mixerFM(quad, norm(self.thrust_sp), self.rateCtrl)
         
         # Add calculated Desired States
@@ -285,13 +285,13 @@ class Control:
         # Body rate reference (without aerodynamic compensation)
         self.pqr_sp[0] = -1/norm(self.thrust_sp)*self.jerk_sp[1]
         self.pqr_sp[1] =  1/norm(self.thrust_sp)*self.jerk_sp[0]
-        self.pqr_sp[2] = 1/norm(np.cross(y_C,body_z))*(self.yawFF*np.dot(x_C,body_x) + self.pqr_sp[1]*np.dot(y_C,body_z))
+        self.pqr_sp[2] = 1/norm(np.cross(y_C,body_z))*(self.yawFF[0]*np.dot(x_C,body_x) + self.pqr_sp[1]*np.dot(y_C,body_z))
 
         thrust_dot = np.dot(body_z,self.jerk_sp)
-        self.ang_sp[0] = -1/norm(self.thrust_sp)*(np.dot(body_y,self.snap_sp) + 2*thrust_dot*self.pqr_sp[0] - self.thrust_sp*self.pqr_sp[1]*self.pqr_sp[2])
-        self.ang_sp[1] = -1/norm(self.thrust_sp)*(np.dot(body_x,self.snap_sp) + 2*thrust_dot*self.pqr_sp[1] - self.thrust_sp*self.pqr_sp[0]*self.pqr_sp[2])
-        self.ang_sp[2] = 1/norm(np.cross(y_C,body_z))*(2*self.yawFF*self.pqr_sp[2]*np.dot(x_C,body_y)
-                                                     - 2*self.yawFF*self.pqr_sp[1]*np.dot(x_C,body_z)
+        self.ang_sp[0] = -1/norm(self.thrust_sp)*(np.dot(body_y,self.snap_sp) + 2*thrust_dot*self.pqr_sp[0] - norm(self.thrust_sp)*self.pqr_sp[1]*self.pqr_sp[2])
+        self.ang_sp[1] = -1/norm(self.thrust_sp)*(np.dot(body_x,self.snap_sp) + 2*thrust_dot*self.pqr_sp[1] - norm(self.thrust_sp)*self.pqr_sp[0]*self.pqr_sp[2])
+        self.ang_sp[2] = 1/norm(np.cross(y_C,body_z))*(2*self.yawFF[0]*self.pqr_sp[2]*np.dot(x_C,body_y)
+                                                     - 2*self.yawFF[0]*self.pqr_sp[1]*np.dot(x_C,body_z)
                                                      - self.pqr_sp[0]*self.pqr_sp[1]*np.dot(y_C,body_y)
                                                      - self.pqr_sp[0]*self.pqr_sp[2]*np.dot(y_C,body_z)
                                                      + self.ang_sp[1]*np.dot(y_C,body_z))
@@ -358,6 +358,7 @@ class Control:
         q_mix[0] = np.clip(q_mix[0], -1.0, 1.0)
         q_mix[3] = np.clip(q_mix[3], -1.0, 1.0)
         self.qd = utils.quatMultiply(self.qd_red, np.array([cos(self.yaw_w*np.arccos(q_mix[0])), 0, 0, sin(self.yaw_w*np.arcsin(q_mix[3]))]))
+        print("desired quaternion",self.qd)
         des_rot = utils.quat2Dcm(self.qd)
         # Resulting error quaternion
         self.qe = utils.quatMultiply(utils.inverse(quad.quat), self.qd)
@@ -365,14 +366,27 @@ class Control:
 
         rate_error = quad.omega - quad.dcm.T*des_rot*self.pqr_sp
 
-        vec = np.squeeze(quad.dcm.T*des_rot*self.pqr_sp)
+        vec = np.dot(np.dot(quad.dcm.T, des_rot), self.pqr_sp.T)
         skew = np.array([
-                    [0, -vec[2], vec[1]],
-                    [vec[2], 0, -vec[0]],
-                    [-vec[1], vec[0], 0]])
+        [0, -vec[2], vec[1]],
+        [vec[2], 0, -vec[0]],
+        [-vec[1], vec[0], 0]
+        ])
+        IB = quad.params["IB"]
+        A = -1 * att_error - np.dot(rate_P_gain, rate_error)
+        print("att error: ", self.qe)
 
-        self.rateCtrl = -1*att_error - rate_P_gain*rate_error + skew*quad.IB*quad.dcm.T*des_rot*self.pqr_sp + quad.IB*quad.dcm.T*des_rot*self.ang_sp
-        
+        # Calculate B
+        B = np.dot(np.dot(np.dot(np.dot(skew, IB), quad.dcm.T), des_rot), self.pqr_sp)
+        print("B: ", B)
+
+        # Calculate C
+        C = np.dot(np.dot(IB, quad.dcm.T), np.dot(des_rot, self.ang_sp))
+        print("C: ", C)
+        self.rateCtrl = A+B+C
+        self.rate_sp = self.pqr_sp
+
+
     def rate_control(self, quad, Ts):
         
         # Rate Control
