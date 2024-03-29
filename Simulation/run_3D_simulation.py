@@ -48,11 +48,11 @@ def main():
 
     # Choose trajectory settings
     # --------------------------- 
-    ctrlOptions = ["xyz_pos", "xy_vel_z_pos", "xyz_vel"]
-    trajSelect = np.zeros(3)
+    ctrlOptions = ["xyz_pos", "xy_vel_z_pos", "xyz_vel", "xyz_pos with geometric"]
+    trajSelect = np.zeros(4)
 
-    # Select Control Type             (0: xyz_pos,                  1: xy_vel_z_pos,            2: xyz_vel)
-    ctrlType = ctrlOptions[0]   
+    # Select Control Type             (0: xyz_pos,                  1: xy_vel_z_pos,            2: xyz_vel,            3: xyz_pos with geometric)
+    ctrlType = ctrlOptions[3]   
     # Select Position Trajectory Type (0: hover,                    1: pos_waypoint_timed,      2: pos_waypoint_interp,    
     #                                  3: minimum velocity          4: minimum accel,           5: minimum jerk,           6: minimum snap
     #                                  7: minimum accel_stop        8: minimum jerk_stop        9: minimum snap_stop
@@ -144,6 +144,10 @@ def main():
     # ---------------------------
 
     # utils.fullprint(sDes_traj_all[:,3:6])
+
+    print("x tracking error",np.mean(pos_all[:,0] - sDes_calc_all[:,0]))
+    print("y tracking error",np.mean(pos_all[:,1] - sDes_calc_all[:,1]))
+    print("z tracking error",np.mean(pos_all[:,2] - sDes_calc_all[:,2]))
     utils.makeFigures(quad.params, t_all, pos_all, vel_all, quat_all, omega_all, euler_all, w_cmd_all, wMotor_all, thr_all, tor_all, sDes_traj_all, sDes_calc_all)
     ani = utils.sameAxisAnimation(t_all, traj.wps, pos_all, quat_all, sDes_traj_all, Ts, quad.params, traj.xyzType, traj.yawType, ifsave)
     plt.show()

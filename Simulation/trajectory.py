@@ -37,7 +37,7 @@ class Trajectory:
 
         self.end_reached = 0
 
-        if (self.ctrlType == "xyz_pos"):
+        if (self.ctrlType == "xyz_pos" or self.ctrlType == "xyz_pos with geometric"):
             self.T_segment = np.diff(self.t_wps)
 
             if (self.averVel == 1):
@@ -306,7 +306,7 @@ class Trajectory:
             if (self.xyzType == 1):
                 self.sDes = testVelControl(t)
         
-        elif (self.ctrlType == "xyz_pos"):
+        elif (self.ctrlType == "xyz_pos" or self.ctrlType == "xyz_pos with geometric"):
             # Hover at [0, 0, 0]
             if (self.xyzType == 0):
                 pass 
