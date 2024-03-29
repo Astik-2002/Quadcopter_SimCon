@@ -84,8 +84,9 @@ class Trajectory:
         self.desEul = np.zeros(3)    # Desired orientation in the world frame (phi, theta, psi)
         self.desPQR = np.zeros(3)    # Desired angular velocity in the body frame (p, q, r)
         self.desYawRate = 0.         # Desired yaw speed
-        self.sDes = np.hstack((self.desPos, self.desVel, self.desAcc, self.desThr, self.desEul, self.desPQR, self.desYawRate)).astype(float)
-
+        self.desJerk = np.zeros(3)   # Desired Jerk (xdotdotdot, ydotdotdot, zdotdotdot)
+        self.desSnap = np.zeros(3)   # Desired Snap (xdotdotdotdot, ydotdotdotdot, zdotdotdotdot)
+        self.sDes = np.hstack((self.desPos, self.desVel, self.desAcc, self.desThr, self.desEul, self.desPQR, self.desYawRate, self.desJerk, self.desSnap)).astype(float)
 
     def desiredState(self, t, Ts, quad):
         
@@ -96,6 +97,9 @@ class Trajectory:
         self.desEul = np.zeros(3)    # Desired orientation in the world frame (phi, theta, psi)
         self.desPQR = np.zeros(3)    # Desired angular velocity in the body frame (p, q, r)
         self.desYawRate = 0.         # Desired yaw speed
+        self.desJerk = np.zeros(3)   # Desired Jerk (xdotdotdot, ydotdotdot, zdotdotdot)
+        self.desSnap = np.zeros(3)   # Desired Snap (xdotdotdotdot, ydotdotdotdot, zdotdotdotdot)
+
 
         def pos_waypoint_timed():
             
@@ -169,6 +173,12 @@ class Trajectory:
 
                 t2 = get_poly_cc(nb_coeff, 2, scale)
                 self.desAcc = np.array([self.coeff_x[start:end].dot(t2), self.coeff_y[start:end].dot(t2), self.coeff_z[start:end].dot(t2)])
+
+                t3 = get_poly_cc(nb_coeff, 3, scale)
+                self.desJerk = np.array([self.coeff_x[start:end].dot(t3), self.coeff_y[start:end].dot(t3), self.coeff_z[start:end].dot(t3)])
+
+                t4 = get_poly_cc(nb_coeff, 4, scale)
+                self.desSnap = np.array([self.coeff_x[start:end].dot(t4), self.coeff_y[start:end].dot(t4), self.coeff_z[start:end].dot(t4)])
         
         def pos_waypoint_arrived():
 
@@ -336,7 +346,7 @@ class Trajectory:
                 elif (self.yawType == 3):
                     yaw_follow()
 
-                self.sDes = np.hstack((self.desPos, self.desVel, self.desAcc, self.desThr, self.desEul, self.desPQR, self.desYawRate)).astype(float)
+                self.sDes = np.hstack((self.desPos, self.desVel, self.desAcc, self.desThr, self.desEul, self.desPQR, self.desYawRate, self.desJerk, self.desSnap)).astype(float)
         
         return self.sDes
 
@@ -359,7 +369,6 @@ def get_poly_cc(n, k, t):
 
     for i, c in enumerate(cc):
         cc[i] = c * np.power(t, D[i])
-
     return cc
 
 
