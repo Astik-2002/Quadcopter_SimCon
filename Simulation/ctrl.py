@@ -94,7 +94,7 @@ rateMax = np.array([pMax, qMax, rMax])
 class Control:
     
     def __init__(self, quad, yawType):
-        self.sDesCalc = np.zeros(16)
+        self.sDesCalc = np.zeros(19)
         self.w_cmd = np.ones(4)*quad.params["w_hover"]
         self.thr_int = np.zeros(3)
         if (yawType == 0):
@@ -107,6 +107,9 @@ class Control:
         self.eul_sp    = np.zeros(3)
         self.pqr_sp    = np.zeros(3)
         self.yawFF     = np.zeros(3)
+        self.jerk_sp   = np.zeros(3)
+        self.snap_sp   = np.zeros(3)
+        self.ang_sp  = np.zeros(3)
 
     
     def controller(self, traj, quad, sDes, Ts):
@@ -120,6 +123,8 @@ class Control:
         self.eul_sp[:]    = traj.sDes[12:15]
         self.pqr_sp[:]    = traj.sDes[15:18]
         self.yawFF[:]     = traj.sDes[18]
+        self.jerk_sp[:]   = traj.sDes[19:22]
+        self.snap_sp[:]   = traj.sDes[22:25]
         
         # Select Controller
         # ---------------------------
@@ -127,15 +132,16 @@ class Control:
             self.saturateVel()
             self.z_vel_control(quad, Ts)
             self.xy_vel_control(quad, Ts)
-            self.thrustToAttitude(quad, Ts)
-            self.attitude_control(quad, Ts)
-            self.rate_control(quad, Ts)
+            self.thrustToAttitude(quad, Ts, traj)
+            #self.attitude_control(quad, Ts)
+            #self.rate_control(quad, Ts)
+            self.attitude_control_geometric(quad, Ts)
         elif (traj.ctrlType == "xy_vel_z_pos"):
             self.z_pos_control(quad, Ts)
             self.saturateVel()
             self.z_vel_control(quad, Ts)
             self.xy_vel_control(quad, Ts)
-            self.thrustToAttitude(quad, Ts)
+            self.thrustToAttitude(quad, Ts, traj)
             self.attitude_control(quad, Ts)
             self.rate_control(quad, Ts)
         elif (traj.ctrlType == "xyz_pos"):
@@ -144,7 +150,7 @@ class Control:
             self.saturateVel()
             self.z_vel_control(quad, Ts)
             self.xy_vel_control(quad, Ts)
-            self.thrustToAttitude(quad, Ts)
+            self.thrustToAttitude(quad, Ts, traj)
             self.attitude_control(quad, Ts)
             self.rate_control(quad, Ts)
 
@@ -248,7 +254,7 @@ class Control:
         vel_err_lim = vel_xy_error - (thrust_xy_sp - self.thrust_sp[0:2])*arw_gain
         self.thr_int[0:2] += vel_I_gain[0:2]*vel_err_lim*Ts * quad.params["useIntergral"]
     
-    def thrustToAttitude(self, quad, Ts):
+    def thrustToAttitude(self, quad, Ts, traj):
         
         # Create Full Desired Quaternion Based on Thrust Setpoint and Desired Yaw Angle
         # ---------------------------
@@ -261,6 +267,7 @@ class Control:
         
         # Vector of desired Yaw direction in XY plane, rotated by pi/2 (fake body_y axis)
         y_C = np.array([-sin(yaw_sp), cos(yaw_sp), 0.0])
+        x_C = np.array([cos(yaw_sp), sin(yaw_sp), 0.0])
         
         # Desired body_x axis direction
         body_x = np.cross(y_C, body_z)
@@ -274,7 +281,20 @@ class Control:
 
         # Full desired quaternion (full because it considers the desired Yaw angle)
         self.qd_full = utils.RotToQuat(R_sp)
-        
+
+        # Body rate reference (without aerodynamic compensation)
+        self.pqr_sp[0] = -1/norm(self.thrust_sp)*self.jerk_sp[1]
+        self.pqr_sp[1] =  1/norm(self.thrust_sp)*self.jerk_sp[0]
+        self.pqr_sp[2] = 1/norm(np.cross(y_C,body_z))*(self.yawFF*np.dot(x_C,body_x) + self.pqr_sp[1]*np.dot(y_C,body_z))
+
+        thrust_dot = np.dot(body_z,self.jerk_sp)
+        self.ang_sp[0] = -1/norm(self.thrust_sp)*(np.dot(body_y,self.snap_sp) + 2*thrust_dot*self.pqr_sp[0] - self.thrust_sp*self.pqr_sp[1]*self.pqr_sp[2])
+        self.ang_sp[1] = -1/norm(self.thrust_sp)*(np.dot(body_x,self.snap_sp) + 2*thrust_dot*self.pqr_sp[1] - self.thrust_sp*self.pqr_sp[0]*self.pqr_sp[2])
+        self.ang_sp[2] = 1/norm(np.cross(y_C,body_z))*(2*self.yawFF*self.pqr_sp[2]*np.dot(x_C,body_y)
+                                                     - 2*self.yawFF*self.pqr_sp[1]*np.dot(x_C,body_z)
+                                                     - self.pqr_sp[0]*self.pqr_sp[1]*np.dot(y_C,body_y)
+                                                     - self.pqr_sp[0]*self.pqr_sp[2]*np.dot(y_C,body_z)
+                                                     + self.ang_sp[1]*np.dot(y_C,body_z))
         
     def attitude_control(self, quad, Ts):
 
@@ -303,7 +323,7 @@ class Control:
         # Resulting error quaternion
         self.qe = utils.quatMultiply(utils.inverse(quad.quat), self.qd)
 
-        # Create rate setpoint from quaternion error
+        # Create rate setpoint from quaternion error\
         self.rate_sp = (2.0*np.sign(self.qe[0])*self.qe[1:4])*att_P_gain
         
         # Limit yawFF
@@ -315,7 +335,44 @@ class Control:
         # Limit rate setpoint
         self.rate_sp = np.clip(self.rate_sp, -rateMax, rateMax)
 
+    def attitude_control_geometric(self, quad, Ts):
 
+        # Current thrust orientation e_z and desired thrust orientation e_z_d
+        e_z = quad.dcm[:,2]
+        e_z_d = -utils.vectNormalize(self.thrust_sp)
+        if (config.orient == "ENU"):
+            e_z_d = -e_z_d
+
+        # Quaternion error between the 2 vectors
+        qe_red = np.zeros(4)
+        qe_red[0] = np.dot(e_z, e_z_d) + sqrt(norm(e_z)**2 * norm(e_z_d)**2)
+        qe_red[1:4] = np.cross(e_z, e_z_d)
+        qe_red = utils.vectNormalize(qe_red)
+        
+        # Reduced desired quaternion (reduced because it doesn't consider the desired Yaw angle)
+        self.qd_red = utils.quatMultiply(qe_red, quad.quat)
+
+        # Mixed desired quaternion (between reduced and full) and resulting desired quaternion qd
+        q_mix = utils.quatMultiply(utils.inverse(self.qd_red), self.qd_full)
+        q_mix = q_mix*np.sign(q_mix[0])
+        q_mix[0] = np.clip(q_mix[0], -1.0, 1.0)
+        q_mix[3] = np.clip(q_mix[3], -1.0, 1.0)
+        self.qd = utils.quatMultiply(self.qd_red, np.array([cos(self.yaw_w*np.arccos(q_mix[0])), 0, 0, sin(self.yaw_w*np.arcsin(q_mix[3]))]))
+        des_rot = utils.quat2Dcm(self.qd)
+        # Resulting error quaternion
+        self.qe = utils.quatMultiply(utils.inverse(quad.quat), self.qd)
+        att_error = (np.sign(self.qe[0])*self.qe[1:4])*att_P_gain
+
+        rate_error = quad.omega - quad.dcm.T*des_rot*self.pqr_sp
+
+        vec = np.squeeze(quad.dcm.T*des_rot*self.pqr_sp)
+        skew = np.array([
+                    [0, -vec[2], vec[1]],
+                    [vec[2], 0, -vec[0]],
+                    [-vec[1], vec[0], 0]])
+
+        self.rateCtrl = -1*att_error - rate_P_gain*rate_error + skew*quad.IB*quad.dcm.T*des_rot*self.pqr_sp + quad.IB*quad.dcm.T*des_rot*self.ang_sp
+        
     def rate_control(self, quad, Ts):
         
         # Rate Control
@@ -332,4 +389,16 @@ class Control:
 
         att_P_gain[2] = roll_pitch_gain
 
+    def hat_map(vec):
+       #Return that hat map of a vector
     
+       #Inputs: 
+        #vec - 3 element vector
+        #Outputs:
+        # skew - 3,3 skew symmetric matrix
+        vec = np.squeeze(vec)
+        skew = np.array([
+                    [0, -vec[2], vec[1]],
+                    [vec[2], 0, -vec[0]],
+                    [-vec[1], vec[0], 0]])
+        return skew
